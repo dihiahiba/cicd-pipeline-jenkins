@@ -1,0 +1,74 @@
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk17'
+        maven 'maven3.8'
+    }
+
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+    }
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+              git branch: 'main', changelog: false, poll: false, url: 'https://github.com/hiba43/java-docker-genie.git'
+            }
+        }
+        
+        stage('Compile') {
+            steps {
+                sh "mvn compile"
+            }
+        }
+        
+        stage('SonarQube Analysis') {
+            steps {
+                sh ''' 
+                $SCANNER_HOME/bin/sonar-scanner \
+                -Dsonar.host.url=http://localhost:9000/ \
+                -Dsonar.login=squ_c0bac3ce010f2589206cb769c24bc5e467ae5036 \
+                -Dsonar.projectName=docker-desktop \
+                -Dsonar.java.binaries=. \
+                -Dsonar.projectKey=docker-desktop 
+                '''
+            }
+        }
+        
+        stage('OWASP') {
+            steps {
+                dependencyCheck additionalArguments: ' --scan ./ ', odcInstallation: 'DP'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh "mvn clean install" 
+            }
+        }
+        stage('Docker Build & Push') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: 'cff85269-d212-41c3-9b81-3525b68f7181') {
+                        sh "docker build -t docker-desktop ."
+                        sh "docker tag docker-desktop hiba081/docker-desktop:latest"
+                        sh "docker push hiba081/docker-desktop:latest"
+                   }
+                }
+            }
+        }
+        
+        stage('Docker Deploy') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: 'cff85269-d212-41c3-9b81-3525b68f7181') {
+                        sh "docker run -d --name docker-desk5 -p 8085:8085 hiba081/docker-desktop:latest"
+                       
+                   }
+                }
+            }
+        }
+    }
+}
